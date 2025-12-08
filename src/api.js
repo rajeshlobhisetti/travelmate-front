@@ -1,5 +1,4 @@
-// Use the deployed backend URL
-const API_BASE = 'https://server-mgh8glc37-rajeshlobhisettis-projects.vercel.app/api';
+const API_BASE = 'http://localhost:4000/api';
 
 async function api(path, { method = 'GET', body, headers } = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
