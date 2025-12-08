@@ -1,56 +1,164 @@
-const API_BASE = 'http://localhost:4000/api';
+const API_BASE = 'https://travelmate-1-0c4k.onrender.com/api';
 
-async function api(path, { method = 'GET', body, headers } = {}) {
+// Helper function to handle API requests
+async function api(path, { method = 'GET', body, headers = {}, auth = true } = {}) {
+  const requestHeaders = {
+    'Content-Type': 'application/json',
+    ...headers
+  };
+
+  // Add authorization header if needed
+  if (auth) {
+    const token = localStorage.getItem('token');
+    if (token) {
+      requestHeaders['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', ...(headers || {}) },
+    headers: requestHeaders,
     body: body ? JSON.stringify(body) : undefined,
     credentials: 'include'
   });
-  const data = await res.json().catch(() => ({}));
+
+  // Handle empty responses (like 204 No Content)
+  const data = res.status === 204 ? {} : await res.json().catch(() => ({}));
+  
   if (!res.ok) {
-    const msg = data?.message || 'Request failed';
-    throw new Error(msg);
+    const errorMessage = data?.message || `Request failed with status ${res.status}`;
+    const error = new Error(errorMessage);
+    error.status = res.status;
+    error.data = data;
+    throw error;
   }
+
   return data;
 }
 
+// Authentication API
 export const AuthAPI = {
-  register: (payload) => api('/auth/register', { method: 'POST', body: payload }),
-  login: (payload) => api('/auth/login', { method: 'POST', body: payload }),
+  register: (payload) => api('/auth/register', { 
+    method: 'POST', 
+    body: payload,
+    auth: false 
+  }),
+  login: (payload) => api('/auth/login', { 
+    method: 'POST', 
+    body: payload,
+    auth: false 
+  }),
   me: () => api('/auth/me'),
-  logout: () => api('/auth/logout', { method: 'POST' })
+  logout: () => {
+    // Clear token from localStorage on logout
+    localStorage.removeItem('token');
+    return api('/auth/logout', { method: 'POST' });
+  }
 };
 
+// Trips API
 export const TripsAPI = {
-  list: (params) => {
-    let qs = '';
-    if (params && (params.start || params.end)) {
-      const q = new URLSearchParams();
-      if (params.start) q.set('start', params.start);
-      if (params.end) q.set('end', params.end);
-      qs = `?${q.toString()}`;
-    }
-    return api(`/trips${qs}`);
+  // Get all trips with optional filters
+  list: (filters = {}) => {
+    const queryParams = new URLSearchParams();
+    
+    // Add filters if provided
+    if (filters.destination) queryParams.append('destination', filters.destination);
+    if (filters.startDate) queryParams.append('startDate', filters.startDate);
+    if (filters.endDate) queryParams.append('endDate', filters.endDate);
+    if (filters.minPrice) queryParams.append('minPrice', filters.minPrice);
+    if (filters.maxPrice) queryParams.append('maxPrice', filters.maxPrice);
+    
+    const queryString = queryParams.toString();
+    return api(`/trips${queryString ? `?${queryString}` : ''}`);
   },
+  
+  // Get a single trip by ID
   get: (id) => api(`/trips/${id}`),
-  create: (payload) => api('/trips', { method: 'POST', body: payload }),
-  update: (id, payload) => api(`/trips/${id}`, { method: 'PUT', body: payload }),
-  remove: (id) => api(`/trips/${id}`, { method: 'DELETE' })
+  
+  // Create a new trip (admin only)
+  create: (tripData) => api('/trips', { 
+    method: 'POST', 
+    body: tripData 
+  }),
+  
+  // Update an existing trip (admin only)
+  update: (id, updates) => api(`/trips/${id}`, { 
+    method: 'PUT', 
+    body: updates 
+  }),
+  
+  // Delete a trip (admin only)
+  delete: (id) => api(`/trips/${id}`, { 
+    method: 'DELETE' 
+  })
 };
 
+// Bookings API
 export const BookingsAPI = {
-  my: () => api('/bookings'),
-  create: (tripId, { quantity = 1, guests, contactPhone } = {}) => api('/bookings', { method: 'POST', body: { tripId, quantity, guests, contactPhone } }),
-  cancel: (id) => api(`/bookings/${id}`, { method: 'DELETE' })
+  // Get current user's bookings
+  my: () => api('/bookings/my-bookings'),
+  
+  // Create a new booking
+  create: (tripId, bookingData) => 
+    api('/bookings', {
+      method: 'POST',
+      body: { 
+        tripId, 
+        ...bookingData 
+      }
+    }),
+  
+  // Cancel a booking
+  cancel: (bookingId) => 
+    api(`/bookings/${bookingId}/cancel`, { 
+      method: 'POST' 
+    }),
+  
+  // Get booking details
+  get: (bookingId) => api(`/bookings/${bookingId}`)
 };
 
+// Admin API
 export const AdminAPI = {
-  login: (payload) => api('/admin/login', { method: 'POST', body: payload }),
+  // Admin authentication
+  login: (credentials) => 
+    api('/admin/login', { 
+      method: 'POST', 
+      body: credentials,
+      auth: false 
+    }),
+  
+  // Get admin profile
   me: () => api('/admin/me'),
-  trips: () => api('/admin/trips'),
-  createTrip: (payload) => api('/admin/trips', { method: 'POST', body: payload }),
-  bookingsForTrip: (id) => api(`/admin/trips/${id}/bookings`),
-  bookings: () => api('/admin/bookings')
+  
+  // Get all trips (admin view)
+  trips: (filters = {}) => {
+    const queryParams = new URLSearchParams(filters);
+    return api(`/admin/trips?${queryParams}`);
+  },
+  
+  // Create a new trip
+  createTrip: (tripData) => 
+    api('/admin/trips', { 
+      method: 'POST', 
+      body: tripData 
+    }),
+  
+  // Get bookings for a specific trip
+  bookingsForTrip: (tripId) => 
+    api(`/admin/trips/${tripId}/bookings`),
+  
+  // Get all bookings (admin view)
+  bookings: (filters = {}) => {
+    const queryParams = new URLSearchParams(filters);
+    return api(`/admin/bookings?${queryParams}`);
+  },
+  
+  // Update booking status
+  updateBookingStatus: (bookingId, status) => 
+    api(`/admin/bookings/${bookingId}/status`, {
+      method: 'PATCH',
+      body: { status }
+    })
 };
-
