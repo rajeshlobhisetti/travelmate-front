@@ -1,4 +1,5 @@
-const API_BASE = 'https://travelmate-1-0c4k.onrender.com/api';
+// Use environment variable if available, otherwise fall back to production URL
+const API_BASE = import.meta.env.VITE_API_BASE || 'https://travelmate-1-0c4k.onrender.com/api';
 
 // Helper function to handle API requests
 async function api(path, { method = 'GET', body, headers = {}, auth = true } = {}) {
